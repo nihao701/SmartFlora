@@ -78,19 +78,8 @@
 | 状态4 | - | - | - | 退出+锁定 | - |
 
 ## 状态机流程图
-```mermaid
-stateDiagram-v2
-    [*] --> BOOT : Power On
-    BOOT --> MAIN : 1.5s
-    MAIN --> SELECT : KEY1 Short
-    SELECT --> MAIN : KEY2 Short
-    SELECT --> ADJUST : KEY1 Long
-    ADJUST --> SELECT : KEY2 Short
-    ADJUST --> MAIN : KEY1 Long Save
-    MAIN --> ALARM : Level2 >= 3
-    ALARM --> MAIN : KEY2 Long Exit
-```
 
+![输入图片说明](start/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-09-17%20162431.png)
 ##核心设计
 ###非阻塞状态机：按键、编码器、显示、控制全部基于时间戳，主循环无 delay
 
