@@ -50,3 +50,14 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Keil 编译中间文件
+Objects/
+Listings/
+DebugConfig/
+*.uvguix.*
+*.bak
+*.o
+*.axf
+*.hex
+*.lst
