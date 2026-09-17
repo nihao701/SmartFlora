@@ -78,18 +78,18 @@
 | 状态4 | - | - | - | 退出+锁定 | - |
 
 ## 状态机流程图
-
 ```mermaid
 stateDiagram-v2
-    [*] --> 开机动画 : 上电
-    开机动画 --> 数据面板 : 1.5秒
-    数据面板 --> 选择指标 : KEY1短按
-    选择指标 --> 数据面板 : KEY2短按
-    选择指标 --> 调节阈值 : KEY1长按
-    调节阈值 --> 选择指标 : KEY2短按
-    调节阈值 --> 数据面板 : KEY1长按保存
-    数据面板 --> 系统报警 : 二级异常≥3
-    系统报警 --> 数据面板 : KEY2长按退出锁定
+    [*] --> BOOT : Power On
+    BOOT --> MAIN : 1.5s
+    MAIN --> SELECT : KEY1 Short
+    SELECT --> MAIN : KEY2 Short
+    SELECT --> ADJUST : KEY1 Long
+    ADJUST --> SELECT : KEY2 Short
+    ADJUST --> MAIN : KEY1 Long Save
+    MAIN --> ALARM : Level2 >= 3
+    ALARM --> MAIN : KEY2 Long Exit
+```
 
 ##核心设计
 ###非阻塞状态机：按键、编码器、显示、控制全部基于时间戳，主循环无 delay
