@@ -8,6 +8,8 @@
 #include "bsp_flash.h"
 #include "bsp_pwm.h"
 #include "buzzer.h"
+#include "ir.h"
+#include "servo.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -16,6 +18,10 @@ SystemState_t g_state = STATE_MAIN;
 uint8_t g_selected = 0;
 uint8_t g_cursor = 0;
 uint8_t g_alarm_locked = 0;   // 0=未锁定，1=已锁定
+static uint8_t g_system_ready = 0;    
+static uint32_t g_boot_time = 0; 
+uint8_t g_door_locked = 0;      // 0=未锁定，1=已锁定
+uint16_t g_person_count = 0;    // 锁定期间检测到的人数
 
 // ===== 函数前置声明 =====
 static void State_Main(void);
@@ -26,6 +32,8 @@ static void DrawSelectScreen(void);
 static void DrawAdjustScreen(void);
 static void DrawAlarmScreen(void);
 static void State_AlarmEnv(void);
+static void State_Door(void);
+static void State_AlarmSec(void);
 
 // ===== 初始化 =====
 void StateMachine_Init(void)
@@ -34,22 +42,53 @@ void StateMachine_Init(void)
     g_selected = 0;
     g_cursor = 0;
     g_alarm_locked = 0;
+	g_boot_time = GetSysTick();    
+    g_system_ready = 0;
+}
+
+// ===== 红外控制 =====
+void IR_Task(void)
+{
+    static uint8_t ir_triggered = 0;
+    
+    // 开机 20 秒后才允许红外触发
+    if (GetSysTick() - g_boot_time >= 20000) {
+        g_system_ready = 1;
+    }
+    
+    if (!g_system_ready) return;
+    
+    if (IR_Detected() && !ir_triggered) {
+        ir_triggered = 1;
+        
+        if (g_door_locked) {
+            g_person_count++;
+            char buf[64];
+            sprintf(buf, "[PERSON] Person detected! Count: %d\r\n", g_person_count);
+            UART1_SendString(buf);
+            g_state = STATE_ALARM_SEC;
+        } else {
+            g_state = STATE_DOOR;
+        }
+    }
+    
+    if (!IR_Detected()) {
+        ir_triggered = 0;
+    }
 }
 
 // ===== 蜂鸣器控制 =====
-static void Buzzer_Control(void)
+void Buzzer_Task(void)
 {
     static uint32_t last_toggle = 0;
     static uint8_t buzzer_state = 0;
     uint8_t level2_count = Data_CountLevel2();
     
-    if (g_state == STATE_ALARM_ENV) {
-        // 状态4：持续响
+    if (g_state == STATE_ALARM_ENV || g_state == STATE_ALARM_SEC) {
         Buzzer_On();
         buzzer_state = 1;
         last_toggle = GetSysTick();
     } else if (level2_count >= 1) {
-        // 有二级异常：间歇响
         if (GetSysTick() - last_toggle >= 500) {
             last_toggle = GetSysTick();
             buzzer_state = !buzzer_state;
@@ -57,9 +96,61 @@ static void Buzzer_Control(void)
         if (buzzer_state) Buzzer_On();
         else Buzzer_Off();
     } else {
-        // 无二级异常：停
         Buzzer_Off();
         buzzer_state = 0;
+    }
+}
+
+// ===== OLED调度 =====
+void OLED_Task(void)
+{
+    static uint32_t last_draw = 0;
+	uint32_t interval = 500;
+	
+	// 状态2/3 刷新更快
+    if (g_state == STATE_SELECT || g_state == STATE_ADJUST) {
+        interval = 100;
+    }
+	
+    if (GetSysTick() - last_draw >= interval) {
+        last_draw = GetSysTick();
+        
+        switch (g_state) {
+            case STATE_MAIN:
+                DrawMainScreen();
+                break;
+            case STATE_DOOR:
+                // 第1行显示 "Door Open!"，第2~4行显示数据
+                OLED_ShowString(1, 1, "Door Open!      ");
+                OLED_ShowString(2, 1, "T:");
+                OLED_ShowNum(2, 3, (uint16_t)g_sensor.temp, 2);
+                OLED_ShowString(2, 5, "C H:");
+                OLED_ShowNum(2, 9, (uint16_t)g_sensor.humi, 2);
+                OLED_ShowString(2, 12, "%");
+                OLED_ShowString(3, 1, "L:");
+                OLED_ShowNum(3, 3, g_sensor.light, 4);
+                OLED_ShowString(3, 8, "S:");
+                OLED_ShowNum(3, 10, g_sensor.soil, 3);
+                OLED_ShowString(3, 13, "%");
+                break;
+            case STATE_SELECT:
+                DrawSelectScreen();
+                break;
+            case STATE_ADJUST:
+                DrawAdjustScreen();
+                break;
+            case STATE_ALARM_ENV:
+                DrawAlarmScreen();
+                break;
+            case STATE_ALARM_SEC:
+                OLED_ShowString(1, 1, "!! SECURITY !!");
+                OLED_ShowString(2, 1, "Person Detected!");
+                OLED_ShowString(3, 1, "Door Locked");
+                break;
+            default:
+                DrawMainScreen();
+                break;
+        }
     }
 }
 
@@ -73,7 +164,6 @@ void StateMachine_Run(void)
         !g_alarm_locked) 
     {
         g_state = STATE_ALARM_ENV;
-        OLED_Clear();
     }
     
     switch (g_state) {
@@ -81,10 +171,10 @@ void StateMachine_Run(void)
         case STATE_SELECT:    State_Select();    break;
         case STATE_ADJUST:    State_Adjust();    break;
         case STATE_ALARM_ENV: State_AlarmEnv();  break;
+		case STATE_DOOR:	  State_Door();      break;
+		case STATE_ALARM_SEC: State_AlarmSec();	 break;
         default:              g_state = STATE_MAIN; break;
     }
-    
-    Buzzer_Control();
 }
 
 // ===== 显示状态1（数据面板） =====
@@ -126,28 +216,36 @@ static void DrawMainScreen(void)
 // ===== 状态1：数据面板 =====
 static void State_Main(void)
 {
-    // 每 500ms 刷新一次
     static uint32_t last_draw = 0;
-    if (GetSysTick() - last_draw >= 500) {
-        last_draw = GetSysTick();
-        DrawMainScreen();
-    }
     
-    // KEY1 短按 → 进入状态2
-    if (KEY1_GetEvent() == KEY_EVENT_SHORT) {
-        g_state = STATE_SELECT;
-        g_selected = 0;
-        OLED_Clear();
-    }
-    
-    // 状态1 里长按 KEY2：解除报警（解锁）
-    if (g_alarm_locked && KEY2_GetEvent() == KEY_EVENT_LONG) {
-        g_alarm_locked = 0;
-    }
-    
-    // 异常全部恢复：自动解锁
-    if (Data_CountLevel2() == 0) {
-        g_alarm_locked = 0;
+    // 如果门锁定，按键失效
+    if (!g_door_locked)
+    {
+        // 正常状态1 逻辑
+        if (GetSysTick() - last_draw >= 500) {
+            last_draw = GetSysTick();
+            DrawMainScreen();
+        }
+        
+        // KEY1 短按 → 状态2
+        if (KEY1_GetEvent() == KEY_EVENT_SHORT) {
+            g_state = STATE_SELECT;
+            g_selected = 0;
+            OLED_Clear();
+        }
+        
+        // KEY2 长按 → 解锁
+        if (g_alarm_locked && KEY2_GetEvent() == KEY_EVENT_LONG) {
+            g_alarm_locked = 0;
+            // 删掉 unlock_tip_flag / unlock_tip_time
+            // 删掉 OLED_ShowString("Unlocked!")
+            // 删掉 return
+        }
+        
+        // 异常全恢复 → 自动解锁
+        if (Data_CountLevel2() == 0) {
+            g_alarm_locked = 0;
+        }
     }
 }
 
@@ -340,5 +438,46 @@ static void State_AlarmEnv(void)
         OLED_Clear();
         g_state = STATE_MAIN;
         g_alarm_locked = 1;
+    }
+}
+
+// 状态6 处理函数
+static void State_Door(void)
+{
+    static uint32_t last_detect_time = 0;
+    static uint8_t first_enter = 1;
+    
+    if (first_enter) {
+        first_enter = 0;
+        Servo_SetAngle(90);
+        last_detect_time = GetSysTick();
+    }
+    
+    if (IR_Detected()) {
+        last_detect_time = GetSysTick();
+    }
+    
+    // 人离开后 3 秒关门
+    if (GetSysTick() - last_detect_time >= 3000) {
+        Servo_SetAngle(0);
+        first_enter = 1;
+        g_state = STATE_MAIN;
+    }
+}
+
+static void State_AlarmSec(void)
+{
+    static uint32_t alarm_time = 0;
+    static uint8_t first_enter = 1;
+    
+    if (first_enter) {
+        first_enter = 0;
+        alarm_time = GetSysTick();
+    }
+    
+    // 报警 3 秒后回状态1（门保持锁定）
+    if (GetSysTick() - alarm_time >= 3000) {
+        first_enter = 1;
+        g_state = STATE_MAIN;
     }
 }

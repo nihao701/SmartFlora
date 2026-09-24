@@ -95,10 +95,25 @@ void UART_Protocol_Handler(void)
         g_alarm_locked = 0;
         UART1_SendString("OK\r\n");
     }
+	// ===== 锁门/开门 =====
+	else if (strcmp((char*)rx_buffer, "DOOR LOCK") == 0) {
+		g_door_locked = 1;
+		g_person_count = 0;
+		Servo_SetAngle(0);
+		UART1_SendString("OK\r\n");
+	} 
+	else if (strcmp((char*)rx_buffer, "DOOR UNLOCK") == 0) {
+		g_door_locked = 0;
+		char buf[64];
+		sprintf(buf, "[INFO] Unlocked. Persons: %d\r\n", g_person_count);
+		UART1_SendString(buf);
+		g_person_count = 0;
+		UART1_SendString("OK\r\n");
+	}
     // ===== 未知指令 =====
     else {
         UART1_SendString("ERROR\r\n");
     }
-    
+	
     rx_complete = 0;
 }

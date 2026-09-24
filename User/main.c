@@ -13,6 +13,7 @@
 #include "bsp_pwm.h"
 #include "buzzer.h"
 #include "servo.h"
+#include "ir.h"
 #include "actuator.h"
 #include <stdio.h>
 
@@ -93,6 +94,7 @@ int main(void)
     Buzzer_Init();
     Servo_Init();
     Actuator_Init();
+	IR_Init();
     
     // OLED 供电
     GPIO_InitTypeDef GPIO_InitStruct;
@@ -115,5 +117,9 @@ int main(void)
         SensorTask();               // 传感器采集 + 自动控制
         StateMachine_Run();         // 状态机（显示 + 按键 + 编码器）
         UART_Protocol_Handler();    // 串口指令解析
+		IR_Task();                 // 红外
+		Buzzer_Task();             // 蜂鸣器
+		StateMachine_Run();        // 状态机（按键）
+		OLED_Task();               // 显示
     }
 }

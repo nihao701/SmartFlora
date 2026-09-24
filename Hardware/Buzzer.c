@@ -7,7 +7,7 @@
 
 /**
  * @brief  蜂鸣器初始化
- * @note   PA5 推挽输出，初始关闭
+ * @note   PA12 推挽输出，初始关闭
  *         接的是有源蜂鸣器（高电平响）
  *         如果接的是低电平触发的蜂鸣器/LED，把 On/Off 里的 Set/Reset 对调
  */
@@ -18,7 +18,7 @@ void Buzzer_Init(void)
     // 使能 GPIOA 时钟
     RCC_APB2PeriphClockCmd(BUZZER_CLK, ENABLE);
     
-    // PA5 推挽输出
+    // PA12 推挽输出
     GPIO_InitStruct.GPIO_Pin = BUZZER_PIN;
     GPIO_InitStruct.GPIO_Mode = GPIO_Mode_Out_PP;
     GPIO_InitStruct.GPIO_Speed = GPIO_Speed_50MHz;
@@ -32,7 +32,7 @@ void Buzzer_Init(void)
  */
 void Buzzer_On(void)
 {
-    GPIO_SetBits(BUZZER_PORT, BUZZER_PIN);   // PA5 = 高电平
+    GPIO_SetBits(BUZZER_PORT, BUZZER_PIN);   // PA12 = 高电平
 }
 
 /**
@@ -40,5 +40,5 @@ void Buzzer_On(void)
  */
 void Buzzer_Off(void)
 {
-    GPIO_ResetBits(BUZZER_PORT, BUZZER_PIN); // PA5 = 低电平
+    GPIO_ResetBits(BUZZER_PORT, BUZZER_PIN); // PA12 = 低电平
 }
